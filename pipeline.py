@@ -23,42 +23,43 @@ class CalcVisitDuration(beam.DoFn):
 
 class GetIpCountryOrigin(beam.DoFn):
     def process(self, element):
-        ip=element[0]
-        response=requests.get(f"http://ip-api.com/json/{ip}?fields=country")
-        country=response.json()["country"]
+        ip = element[0]
+        response = requests.get(f"http://ip-api.com/json/{ip}?fields=country")
+        country = response.json()["country"]
+
+        yield [ip, country]
 
 
-        yield[ip, country]
-
-
-
-
-
+def map_country_to_ip(element, ip_map):
+    ip = element[0]
+    return [ip_map[ip], element[1]]
 
 
 def run(argv=None):
-    parser=argparse.ArgumentParser()
+    parser = argparse.ArgumentParser()
     parser.add_argument("--input")
     parser.add_argument("--output")
-    args, beam_args=parser.parse_known_args(argv)
+    args, beam_args = parser.parse_known_args(argv)
 
-    with beam.Pipeline() as p:
-        lines= (
+    with beam.Pipeline(argv=beam_args) as p:
+        lines = (
             p
-            | "ReadFile" >> beam.io.ReadFromText(args.input,skip_header_lines=1)
-            |  "ParseLines">>beam.Map(parse_lines)
-            )
+            | "ReadFile" >> beam.io.ReadFromText(args.input, skip_header_lines=1)
+            | "ParseLines" >> beam.Map(parse_lines)
+        )
 
-        duration =  lines | "CalcVisitDuration">> beam.ParDo(CalcVisitDuration())
+        duration = lines | "CalcVisitDuration" >> beam.ParDo(CalcVisitDuration())
 
-        ip_map = lines | "GetIpCountryOrigin">> beam.ParDo(GetIpCountryOrigin())
+        ip_map = lines | "GetIpCountryOrigin" >> beam.ParDo(GetIpCountryOrigin())
 
-        ip_map | beam.Map(print)
+        result = (
+            duration
+            | "MapIpCountry" >> beam.Map(map_country_to_ip, ip_map=beam.pvalue.AsDict(ip_map))
+            | "AverageByCountry" >> beam.CombinePerKey(beam.combiners.MeanCombineFn())
+            | "FormatOutput" >> beam.Map(lambda element: ",".join(map(str, element)))
+        )
 
-
-
-
-
+        result | "WriteOutput" >> beam.io.WriteToText(args.output)
 
 
 if __name__ == "__main__":
