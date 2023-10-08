@@ -1,4 +1,5 @@
 import logging
+import requests
 from datetime import datetime
 import argparse
 
@@ -20,6 +21,19 @@ class CalcVisitDuration(beam.DoFn):
         yield [element[0], diff.total_seconds()]
 
 
+class GetIpCountryOrigin(beam.DoFn):
+    def process(self, element):
+        ip=element[0]
+        response=requests.get(f"http://ip-api.com/json/{ip}?fields=country")
+        country=response.json()["country"]
+
+
+        yield[ip, country]
+
+
+
+
+
 
 
 def run(argv=None):
@@ -37,7 +51,9 @@ def run(argv=None):
 
         duration =  lines | "CalcVisitDuration">> beam.ParDo(CalcVisitDuration())
 
-        duration | beam.Map(print)
+        ip_map = lines | "GetIpCountryOrigin">> beam.ParDo(GetIpCountryOrigin())
+
+        ip_map | beam.Map(print)
 
 
 
